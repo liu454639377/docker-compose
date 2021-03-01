@@ -1,0 +1,126 @@
+version: "3"
+services:
+  mysql-server:
+    image: mysql:5.7
+    container_name: mysql-server
+    environment:
+      - MYSQL_DATABASE=zabbix
+      - MYSQL_USER=zabbix
+      - MYSQL_PASSWORD=zabbix
+      - MYSQL_ROOT_PASSWORD=goodluck@123
+    ports:
+      - 3306:3306
+    volumes:
+      - ./zabbix/data/mysql:/var/lib/mysql
+    command:
+      --character-set-server=utf8
+      --transaction-isolation=READ-COMMITTED
+      --collation-server=utf8_bin
+    networks:
+         zabbix_network:
+            ipv4_address: 172.30.0.5
+
+  zabbix-server:     #
+    image: 117.176.240.253:9003/ps_ap/zabbix-zh-fde:v4
+    container_name: zabbix-sever
+    restart: always
+    environment:   #
+      DB_SERVER_HOST: 172.30.0.5
+      MYSQL_DATABASE: zabbix
+      MYSQL_ROOT_PASSWORD: goodluck@123
+      MYSQL_USER: zabbix
+      MYSQL_PASSWORD: zabbix
+      ZBX_HISTORYSTORAGETYPES: log,text #
+      ZBX_DEBUGLEVEL: 1
+      ZBX_HOUSEKEEPINGFREQUENCY: 1
+      ZBX_MAXHOUSEKEEPERDELETE: 5000
+      ZBX_CACHESIZE: 2048M
+      ZBX_VALUECACHESIZE: 500M
+      http_proxy: http://192.168.2.105:8118
+      https_proxy: http://192.168.2.105:8118
+    ports:
+      - "9003:10051"
+    sysctls:
+     - net.ipv4.ip_local_port_range=1024 65000
+     - net.ipv4.conf.all.accept_redirects=0
+     - net.ipv4.conf.all.secure_redirects=0
+     - net.ipv4.conf.all.send_redirects=0
+    volumes:  # Volumes for scripts and related files you can add
+      - /etc/resolv.conf:/etc/resolv.conf
+      - /etc/localtime:/etc/localtime:ro
+      - ./zabbix/run/zabbix:/var/run/zabbix:rw
+      - /etc/timezone:/etc/timezone:ro
+      - ./zabbix/alertscripts:/usr/lib/zabbix/alertscripts
+      - ./zabbix/externalscripts:/usr/lib/zabbix/externalscripts:ro
+      - ./zabbix/modules:/var/lib/zabbix/modules:ro
+      - ./zabbix/enc:/var/lib/zabbix/enc:ro
+      - ./zabbix/ssh_keys:/var/lib/zabbix/ssh_keys:ro
+      - ./zabbix/mibs:/var/lib/zabbix/mibs:ro
+      - ./zabbix/config:/etc/zabbix/:ro
+      - ./zabbix/log:/var/logs/:rw
+    depends_on:
+      - mysql-server
+    links:
+      - mysql-server
+    networks:
+         zabbix_network:
+            ipv4_address: 172.30.0.4
+
+
+
+  zabbix-web:    # The main Zabbix web UI or interface
+    image: zabbix/zabbix-web-nginx-mysql
+    container_name: zabbix-web
+    restart: always
+    environment:  # Postgre database variables
+      DB_SERVER_HOST: 172.30.0.5
+      MYSQL_DATABASE: zabbix
+      MYSQL_ROOT_PASSWORD: goodluck@123
+      MYSQL_USER: zabbix
+      MYSQL_PASSWORD: zabbix
+      ZBX_SERVER_HOST: 172.30.0.4  # Zabbix related and Php variables
+      ZBX_POSTMAXSIZE: 64M
+      PHP_TZ: "Asia/Shanghai"
+      ZBX_MAXEXECUTIONTIME: 500
+      http_proxy: http://192.168.2.105:8118
+      https_proxy: http://192.168.2.105:8118
+    depends_on:
+      - zabbix-server
+    ports:    # Port where Zabbix UI is available
+      - "9002:443"
+      - "9001:8080"
+    volumes:
+      - ./fonts:/usr/share/zabbix/assets/fonts:ro
+      - ./fonts/defines.inc.php:/usr/share/zabbix/include/defines.inc.php
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/resolv.conf:/etc/resolv.conf
+    networks:
+         zabbix_network:
+            ipv4_address: 172.30.0.2
+
+  zabbix-agent-a:
+    image: zabbix/zabbix-agent2
+    container_name: zabbix-agent
+    privileged: true
+    restart: always
+    depends_on:
+      - zabbix-server
+    environment:
+      - ZBX_HOSTNAME=zabbix-server  
+      - ZBX_SERVER_HOST=172.30.0.4
+      - ZBX_SERVER_PORT=10051
+    ports:
+      - '10050:10050'
+    volumes:
+      - ./zabbix/config/zabbix_agent2.conf:/etc/zabbix/zabbix_agent2.conf:ro
+    networks:
+         zabbix_network:
+            ipv4_address: 172.30.0.3
+
+
+networks:
+    zabbix_network:
+       ipam:
+         config:  
+         - subnet: 172.30.0.0/24
